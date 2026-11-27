@@ -706,13 +706,31 @@ def render_skyline(data, now):
         s = f' stroke="{stroke}" stroke-width="{sw}"' if stroke else ""
         return f'<polygon points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in pts)}" fill="{fill}"{s}/>'
 
+    # An <img> SVG can't see the page scroll, so the city rebuilds on a loop instead: a scanner
+    # sweeps left to right, buildings rise behind it, hold, then fold away for the next pass.
+    cycle = 16
     css = (
-        ".b{transform-box:fill-box;transform-origin:50% 100%;animation:rise .9s cubic-bezier(.2,.9,.25,1) both}"
-        "@keyframes rise{from{transform:scaleY(.02);opacity:0}}"
+        f".b{{transform-box:fill-box;transform-origin:50% 100%;animation:rise {cycle}s infinite both}}"
+        "@keyframes rise{0%{transform:scaleY(.02);opacity:0;animation-timing-function:cubic-bezier(.2,.9,.25,1)}"
+        "9%{transform:scaleY(1);opacity:1}90%{transform:scaleY(1);opacity:1;animation-timing-function:ease-in}"
+        "96%,100%{transform:scaleY(.02);opacity:0}}"
+        f".scanner{{animation:scan {cycle}s linear infinite both}}"
+        "@keyframes scan{0%{transform:translateX(0);opacity:0}1%{opacity:1}11%{transform:translateX(760px);opacity:1}"
+        "12%,100%{transform:translateX(760px);opacity:0}}"
+        f".late{{animation:late {cycle}s infinite both}}"
+        "@keyframes late{0%,17%{opacity:0}21%,88%{opacity:1}92%,100%{opacity:0}}"
         ".beacon{animation:pulse 1.6s ease-in-out infinite}"
     )
     out = [frame(w, h), header(w, "TELEMETRY", "// CONTRIBUTION SKYLINE · LAST 12 MONTHS",
                                 f"SYNC {now:%Y-%m-%d} UTC")]
+    out.append(
+        '<linearGradient id="scang" x1="0" y1="0" x2="1" y2="0">'
+        f'<stop offset="0" stop-color="{CYAN}" stop-opacity="0"/>'
+        f'<stop offset=".8" stop-color="{CYAN}" stop-opacity=".16"/>'
+        f'<stop offset="1" stop-color="{CYAN}" stop-opacity=".55"/></linearGradient>'
+        f'<g class="scanner"><rect x="-40" y="60" width="80" height="{h - 100}" fill="url(#scang)"/>'
+        f'<path d="M40 60V{h - 40}" stroke="{CYAN}" stroke-width="1.5" opacity=".8"/></g>'
+    )
     ground = [P(0, 0), P(weeks, 0), P(weeks, 7), P(0, 7)]
     out.append(f'<polygon points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in ground)}" fill="none" '
                f'stroke="{EDGE}" stroke-dasharray="3 4"/>')
@@ -732,7 +750,7 @@ def render_skyline(data, now):
             poly([P(b, c0), P(b, c1), P(b, c1, z), P(b, c0, z)], shade(top, 0.3)),
             poly([P(a, c0, z), P(b, c0, z), P(b, c1, z), P(a, c1, z)], top, shade(top, 1.35), 0.7),
         )
-        delay = wk * 0.024 + wd * 0.012
+        delay = (P(wk, wd)[0] - 40) / 760 * 1.76  # rise just as the scanner passes overhead
         out.append(f'<g class="b" style="animation-delay:{delay:.2f}s">{"".join(faces)}</g>')
         if (wk, wd) == (peak[0], peak[1]):
             peak_top = P(wk + 0.5, wd + 0.5, z)
@@ -748,12 +766,12 @@ def render_skyline(data, now):
     if peak_top and peak[3] > 0:
         px, py = peak_top
         ty = max(py - 34, 70)
-        out.append(f'<path class="beacon" d="M{px:.1f} {py - 3:.1f}V{ty:.1f}" stroke="{PINK}" stroke-width="1.2"/>'
-                   f'<circle class="beacon" cx="{px:.1f}" cy="{ty:.1f}" r="2.6" fill="{PINK}"/>')
         label = f"PEAK {peak[3]} · {peak[2]:%Y-%m-%d}"
         anchor = "end" if px > w - 220 else "start"
         dx = -8 if anchor == "end" else 8
-        out.append(mtext(px + dx, ty + 4, label, 10, PINK, anchor, spacing=1, weight=700))
+        out.append(f'<g class="late"><path class="beacon" d="M{px:.1f} {py - 3:.1f}V{ty:.1f}" stroke="{PINK}" '
+                   f'stroke-width="1.2"/><circle class="beacon" cx="{px:.1f}" cy="{ty:.1f}" r="2.6" fill="{PINK}"/>'
+                   + mtext(px + dx, ty + 4, label, 10, PINK, anchor, spacing=1, weight=700) + "</g>")
     # stats block
     current, longest = streaks(days)
     active = sum(1 for _, c, _ in days if c)

@@ -25,6 +25,6 @@
   <a href="https://github.com/vaibhav449/basic_chat"><img src="assets/case-basic_chat.svg" width="49%" alt="basic_chat — realtime chat, built as a lab for monorepos and deploys." /></a>
 </p>
 
-<p><img src="assets/skyline.svg" width="100%" alt="Contribution skyline: the last 12 months of GitHub contributions drawn as a 3D city, with streaks and peak day." /></p>
+<p><img src="assets/skyline.svg" width="100%" loading="lazy" alt="Contribution skyline: the last 12 months of GitHub contributions drawn as a 3D city, with streaks and peak day." /></p>
 
 <p><a href="https://vaibhavchaubey.live"><img src="assets/footer.svg" width="100%" alt="End of file — vaibhavchaubey.live" /></a></p>
