@@ -833,6 +833,175 @@ def render_skyline(data, now):
     return doc(w, h, "".join(out), f"Contribution skyline: {data['total']} contributions in the last 12 months", css)
 
 
+# Pixel-art builder (facing right), one character per pixel. Y hat, K hair, S skin, E eye,
+# N shirt, C cyan stripe, P trousers, B boots, H hammer handle, G hammer head.
+BUILDER_BODY = [
+    "...YYYYY...",
+    "..YYYYYYY..",
+    "..YYYYYYYYY",
+    "...KSSSS...",
+    "...SSSES...",
+    "...SSSSS...",
+    "..NNNNNN...",
+    "..NCNNNN...",
+    "..NNCNNN...",
+    "..NNNCNN...",
+    "...PPPP....",
+]
+BUILDER_LEGS = (["...P..P....", "...P..P....", "..BB..BB..."],
+                ["....PP.....", "....PP.....", "...BBBB...."])
+BUILDER_ARM = ["...........", "...........", "...........", "........GGG", ".........H.",
+               ".........H.", ".........H.", ".......N.H.", "........NS."]
+BUILDER_PAL = {"Y": AMBER, "K": "#1a1208", "S": "#c68a5a", "E": "#1a1208", "N": "#0d2238", "C": CYAN,
+               "P": "#22303f", "B": "#4a3420", "H": "#8a5a2b", "G": "#9fb3c8"}
+
+
+def pixels(rows, u):
+    out = []
+    for r, row in enumerate(rows):
+        c = 0
+        while c < len(row):
+            ch, run = row[c], 1
+            if ch == ".":
+                c += 1
+                continue
+            while c + run < len(row) and row[c + run] == ch:
+                run += 1
+            out.append(f'<rect x="{c * u:.1f}" y="{r * u:.1f}" width="{run * u:.1f}" height="{u:.1f}" '
+                       f'fill="{BUILDER_PAL[ch]}"/>')
+            c += run
+    return "".join(out)
+
+
+def pct(t, total):
+    return f"{100 * t / total:.3f}%"
+
+
+def render_construction(data, now):
+    """The builder walks the contribution grid in date order and lays a block on every active day."""
+    w, h = 840, 268
+    days = data["days"]
+    start = days[0][0] - dt.timedelta(days=(days[0][0].weekday() + 1) % 7)
+    cells = [((d - start).days // 7, (d.weekday() + 1) % 7, d, c, lv or (1 if c else 0)) for d, c, lv in days]
+    weeks = max(c[0] for c in cells) + 1
+    gx, gy, cs, pitch = 46, 116, 11.5, 14.1
+
+    def centre(wk, wd):
+        return gx + wk * pitch + cs / 2, gy + wd * pitch + cs / 2
+
+    stops = [c for c in cells if c[3] > 0]
+    # Timeline: walk (manhattan, along the grid), stop, swing, lay the block, move on.
+    step, dwell, hit = 0.055, 0.28, 0.14
+    est = len(stops) * (dwell + 3 * step) + weeks * step
+    k = min(1.0, 40 / est) if est else 1.0  # keep one lap under ~45s however busy the year was
+    step, dwell, hit = step * k, dwell * k, hit * k
+    # He stands just left of the lot he's building, so the hammer lands on it in plain view.
+    reach_x, reach_y = 15.3, 0.8
+    x, y = gx - 30, centre(0, stops[0][1] if stops else 3)[1] - reach_y
+    t, pos, swings, builds = 0.6, [(0.0, x, y)], [], []
+    for wk, wd, _, count, lv in stops:
+        tx, ty = centre(wk, wd)
+        tx, ty = tx - reach_x, ty - reach_y
+        if tx != x:
+            t += abs(tx - x) / pitch * step
+            x = tx
+            pos.append((t, x, y))
+        if ty != y:
+            t += abs(ty - y) / pitch * step
+            y = ty
+            pos.append((t, x, y))
+        swings.append(t)
+        builds.append((wk, wd, lv, t + hit))
+        t += dwell
+        pos.append((t, x, y))
+    exit_x = gx + weeks * pitch + 26
+    t += abs(exit_x - x) / pitch * step
+    pos.append((t, exit_x, y))
+    done, T = t, t + 3.4
+    fade = T - 0.8
+
+    css = [f".bw{{animation:walk {T:.2f}s linear infinite}}",
+           "@keyframes walk{" + "".join(f"{pct(tt, T)}{{transform:translate({px:.1f}px,{py:.1f}px)}}"
+                                       for tt, px, py in pos) + f"100%{{transform:translate({exit_x:.1f}px,{y:.1f}px)}}}}",
+           f".bv{{animation:bv {T:.2f}s linear infinite}}",
+           f"@keyframes bv{{0%{{opacity:0}}{pct(0.4, T)},{pct(done + 0.2, T)}{{opacity:1}}{pct(done + 0.6, T)},100%{{opacity:0}}}}",
+           ".la{animation:la .3s steps(1) infinite}@keyframes la{50%{opacity:0}}",
+           ".lb{opacity:0;animation:lb .3s steps(1) infinite}@keyframes lb{50%{opacity:1}}",
+           ".bob{animation:bob .3s steps(1) infinite}@keyframes bob{50%{transform:translateY(-1px)}}"]
+    swing = ["0%{transform:rotate(0)}"]
+    for a in swings:
+        swing += [f"{pct(a, T)}{{transform:rotate(0)}}", f"{pct(a + hit * 0.55, T)}{{transform:rotate(-70deg)}}",
+                  f"{pct(a + hit, T)}{{transform:rotate(97deg)}}", f"{pct(a + hit + 0.09 * k, T)}{{transform:rotate(0)}}"]
+    u = 2.8  # one sprite pixel, in SVG units
+    css.append(f".arm{{transform-origin:{7.5 * u:.1f}px {7.2 * u:.1f}px;animation:swing {T:.2f}s linear infinite}}"
+               "@keyframes swing{" + "".join(swing) + "100%{transform:rotate(0)}}")
+    burst = 0.5 / T * 100
+    for name, (dx, dy) in {"ne": (7, -8), "nw": (-7, -8), "se": (8, 3), "sw": (-8, 3)}.items():
+        css.append(f".s{name}{{opacity:0;animation:s{name} {T:.2f}s linear infinite}}"
+                   f"@keyframes s{name}{{0%{{opacity:1;transform:translate(0,0)}}"
+                   f"{burst:.3f}%,100%{{opacity:0;transform:translate({dx}px,{dy}px)}}}}")
+    css.append(f".stamp{{opacity:0;animation:stamp {T:.2f}s linear infinite}}"
+               f"@keyframes stamp{{0%,{pct(done, T)}{{opacity:0}}{pct(done + 0.25, T)},{pct(fade, T)}{{opacity:1}}"
+               f"100%{{opacity:0}}}}")
+
+    out = [frame(w, h), header(w, "CONSTRUCTION", "// CONTRIBUTION GRID · BUILDER ON SITE",
+                                f"SYNC {now:%Y-%m-%d} UTC")]
+    # empty lots
+    lots = "".join(f'<rect x="{gx + wk * pitch:.1f}" y="{gy + wd * pitch:.1f}" width="{cs}" height="{cs}" rx="2"/>'
+                   for wk, wd, *_ in cells)
+    out.append(f'<g fill="#0a131b" stroke="#13232e" stroke-width=".6">{lots}</g>')
+    # blocks, each laid the moment the hammer lands
+    for i, (wk, wd, lv, th) in enumerate(builds):
+        color = LEVELS[min(lv, 4)]
+        p = 100 * th / T
+        css.append(f".k{i}{{transform-box:fill-box;transform-origin:50% 50%;animation:k{i} {T:.2f}s linear infinite both}}"
+                   f"@keyframes k{i}{{0%,{p:.3f}%{{opacity:0;transform:scale(.2);fill:#ffffff}}"
+                   f"{p + 0.5:.3f}%{{opacity:1;transform:scale(1.35);fill:#ffffff}}"
+                   f"{p + 1.6:.3f}%,{pct(fade, T)}{{opacity:1;transform:scale(1);fill:{color}}}"
+                   f"100%{{opacity:0;transform:scale(1);fill:{color}}}}}")
+        bx, by = gx + wk * pitch, gy + wd * pitch
+        out.append(f'<rect class="k{i}" x="{bx:.1f}" y="{by:.1f}" width="{cs}" height="{cs}" rx="2" fill="{color}"/>')
+        cx, cy = centre(wk, wd)
+        spark = AMBER if lv < 4 else PINK
+        out.append("".join(f'<rect class="s{d}" x="{cx - 1:.1f}" y="{cy - 1:.1f}" width="2" height="2" fill="{spark}" '
+                           f'style="animation-delay:{th:.2f}s"/>' for d in ("ne", "nw", "se", "sw")))
+    # axis labels
+    for wd, name in ((1, "MON"), (3, "WED"), (5, "FRI")):
+        out.append(mtext(14, gy + wd * pitch + 9, name, 8.5, DIM, spacing=1))
+    last = -9
+    for wk in range(weeks):
+        d = start + dt.timedelta(days=wk * 7)
+        if (d.day <= 7 or wk == 0) and wk - last >= 3:
+            out.append(mtext(gx + wk * pitch, gy + 7 * pitch + 12, d.strftime("%b").upper(), 9, DIM, spacing=1))
+            last = wk
+    # the builder: walk (position) > visibility > sprite offset so (0,0) is between his boots
+    legs_a, legs_b = (pixels(rows, u) for rows in BUILDER_LEGS)
+    sprite = (f'<ellipse cx="{5.5 * u:.1f}" cy="{14 * u + 0.5:.1f}" rx="{4 * u:.1f}" ry="{0.9 * u:.1f}" '
+              f'fill="#000000" opacity=".55"/>'
+              f'<g transform="translate(0 {11 * u:.1f})"><g class="la">{legs_a}</g><g class="lb">{legs_b}</g></g>'
+              f'<g class="bob">{pixels(BUILDER_BODY, u)}<g class="arm">{pixels(BUILDER_ARM, u)}</g></g>')
+    out.append(f'<g class="bw"><g class="bv"><g transform="translate({-5.5 * u:.1f} {-(14 * u - 5):.1f})">'
+               f'{sprite}</g></g></g>')
+    # completion stamp
+    active = len(stops)
+    out.append(f'<g class="stamp"><g transform="rotate(-4 {w - 150} 84)">'
+               f'<rect x="{w - 262}" y="68" width="226" height="30" fill="{BG}" stroke="{PINK}" stroke-width="1.6"/>'
+               + mtext(w - 149, 88, f"SITE COMPLETE // {active} BLOCKS", 11, PINK, "middle", spacing=1.6, weight=700)
+               + "</g></g>")
+    # footer: stats + legend
+    out.append(mtext(32, h - 20, f"BLOCKS LAID {active}   ·   {data['total']} CONTRIBUTIONS   ·   LAST 12 MONTHS",
+                     9.5, MUTED, spacing=1.2))
+    lx = w - 210
+    out.append(mtext(lx, h - 20, "LESS", 9, DIM, spacing=1))
+    for i, lv in enumerate([0, 1, 2, 3, 4]):
+        color = "#0a131b" if lv == 0 else LEVELS[lv]
+        out.append(f'<rect x="{lx + 34 + i * 14}" y="{h - 29}" width="10" height="10" rx="2" fill="{color}" '
+                   f'stroke="#1b2f3b" stroke-width=".6"/>')
+    out.append(mtext(lx + 34 + 5 * 14 + 4, h - 20, "MORE", 9, DIM, spacing=1))
+    return doc(w, h, "".join(out), f"Construction site: a builder lays {active} blocks across the last 12 months",
+               "".join(css))
+
+
 def render_footer():
     w, h = 840, 96
     out = [frame(w, h), barcode(32, 28, 190, 30, FILE_NO + "-EOF")]
@@ -856,6 +1025,7 @@ def main():
         "loadout.svg": render_loadout(),
         "cases.svg": render_cases_header(),
         "skyline.svg": render_skyline(data, now),
+        "construction.svg": render_construction(data, now),
         "footer.svg": render_footer(),
     }
     height = max(case_layout(c)[2] for c in CASES) + 66

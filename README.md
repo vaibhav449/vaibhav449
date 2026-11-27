@@ -27,4 +27,6 @@
 
 <p><img src="assets/skyline.svg" width="100%" loading="lazy" alt="Contribution skyline: the last 12 months of GitHub contributions drawn as a 3D city, with streaks and peak day." /></p>
 
+<p><img src="assets/construction.svg" width="100%" alt="Construction site: a hard-hat builder walks the contribution grid and lays a block on every day with contributions." /></p>
+
 <p><a href="https://vaibhavchaubey.live"><img src="assets/footer.svg" width="100%" alt="End of file — vaibhavchaubey.live" /></a></p>
