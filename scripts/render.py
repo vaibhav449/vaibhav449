@@ -641,13 +641,43 @@ def case_layout(c):
     return mission, evidence, 74 + len(mission) * 17 + 14 + sum(len(e) * 15 + 7 for e in evidence)
 
 
+COMET_LAP = 6  # seconds for the light to circle a case card once
+# (length as % of the perimeter, colour, opacity, stroke width): a long pink tail, a cyan body, a white-hot head
+COMET = [(24, PINK, 0.4, 1.6), (10, CYAN, 0.75, 2), (2.5, "#e8fdff", 1, 2.8)]
+
+
+def comet(w, h, phase):
+    """A light that runs around the card's rounded edge instead of a static border."""
+    r, e = 11, 1
+    x1, y1 = w - e, h - e
+    d = (f"M{e + r} {e}H{x1 - r}A{r} {r} 0 0 1 {x1} {e + r}V{y1 - r}A{r} {r} 0 0 1 {x1 - r} {y1}"
+         f"H{e + r}A{r} {r} 0 0 1 {e} {y1 - r}V{e + r}A{r} {r} 0 0 1 {e + r} {e}Z")
+    delay = f"animation-delay:-{phase:.2f}s"
+    paths = "".join(
+        f'<path class="lap{k}" d="{d}" pathLength="100" fill="none" stroke="{color}" stroke-width="{sw}" '
+        f'stroke-linecap="round" opacity="{op}" style="{delay}"/>'
+        for k, (_, color, op, sw) in enumerate(COMET))
+    return f'<g class="comet" filter="url(#glow)">{paths}</g>'
+
+
+def comet_css():
+    # Each layer's leading edge sits at the same point, so the head leads and the tails trail behind it.
+    rules = []
+    for k, (length, *_rest) in enumerate(COMET):
+        rules.append(f".lap{k}{{stroke-dasharray:{length} {100 - length};"
+                     f"animation:lap{k} {COMET_LAP}s linear infinite}}"
+                     f"@keyframes lap{k}{{from{{stroke-dashoffset:{length}}}to{{stroke-dashoffset:{length - 100}}}}}")
+    return "".join(rules) + "@media (prefers-reduced-motion:reduce){.comet{display:none}}"
+
+
 def render_case(i, c, meta, height, now):
     w, h = 410, height
     mission, evidence, _ = case_layout(c)
     pushed = meta.get("pushed")
     status = c.get("status") or ("ACTIVE" if pushed and (now - pushed).days <= 30 else "STABLE")
     scolor = {"ACTIVE": LIME, "BUILDING": AMBER}.get(status, CYAN)
-    out = [frame(w, h)]
+    out = [f'<rect width="{w}" height="{h}" rx="12" fill="{BG}"/>'
+           f'<rect width="{w}" height="{h}" rx="12" fill="url(#grid)"/>']
     out.append(f'<path d="M1 1H124L136 24H1Z" fill="{PINK}" fill-opacity=".12"/>'
                f'<path d="M124 1L136 24H1" fill="none" stroke="{PINK}" stroke-width="1"/>')
     out.append(mtext(16, 17, f"CASE {i:02d}", 10.5, PINK, spacing=2, weight=700))
@@ -676,7 +706,8 @@ def render_case(i, c, meta, height, now):
     when = f"LAST PUSH {pushed:%Y-%m-%d}" if pushed else ""
     out.append(mtext(20, h - 13, when, 9.5, DIM, spacing=1.2))
     out.append(mtext(w - 20, h - 13, "OPEN FILE ↗", 10, PINK, "end", spacing=1.5, weight=700))
-    return doc(w, h, "".join(out), f"Case {i:02d}: {c['title'].title()} - {c['mission']}")
+    out.append(comet(w, h, phase=(i - 1) * COMET_LAP / len(CASES) * 2.5 % COMET_LAP))
+    return doc(w, h, "".join(out), f"Case {i:02d}: {c['title'].title()} - {c['mission']}", comet_css())
 
 
 def render_cases_header():
